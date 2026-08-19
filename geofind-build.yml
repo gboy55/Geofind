@@ -1,0 +1,297 @@
+name: GEOFIND AUTONOME V3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Identify workflow
+        run: |
+          echo "WORKFLOW_VERSION=GEOFIND_AUTONOME_V3"
+          echo "This workflow creates the Android project from scratch."
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+
+      - name: Create Geofind project
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p app/src/main/java/com/geofind/app
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "Geofind"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.geofind.app'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "com.geofind.app"
+                  minSdk 24
+                  targetSdk 35
+                  versionCode 1
+                  versionName "0.1"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:allowBackup="true"
+                  android:label="Geofind"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/geofind/app/MainActivity.java <<'EOF'
+          package com.geofind.app;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.media.ExifInterface;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.view.ViewGroup;
+          import android.widget.Button;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          import java.io.InputStream;
+          import java.util.Locale;
+
+          public class MainActivity extends Activity {
+
+              private static final int PICK_IMAGE = 1001;
+
+              private ImageView imageView;
+              private TextView resultView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  root.setPadding(32, 48, 32, 32);
+                  root.setBackgroundColor(Color.rgb(245, 247, 250));
+
+                  TextView title = new TextView(this);
+                  title.setText("GEOFIND");
+                  title.setTextSize(30);
+                  title.setTextColor(Color.BLACK);
+                  title.setGravity(Gravity.CENTER);
+                  root.addView(
+                      title,
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.WRAP_CONTENT
+                      )
+                  );
+
+                  TextView subtitle = new TextView(this);
+                  subtitle.setText("Choisis une photo pour tenter de localiser le lieu.");
+                  subtitle.setTextSize(17);
+                  subtitle.setGravity(Gravity.CENTER);
+                  subtitle.setPadding(0, 20, 0, 30);
+                  root.addView(subtitle);
+
+                  imageView = new ImageView(this);
+                  imageView.setAdjustViewBounds(true);
+                  imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+                  LinearLayout.LayoutParams imageParams =
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          700
+                      );
+
+                  root.addView(imageView, imageParams);
+
+                  Button button = new Button(this);
+                  button.setText("CHOISIR UNE PHOTO");
+                  button.setOnClickListener(v -> chooseImage());
+
+                  LinearLayout.LayoutParams buttonParams =
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.WRAP_CONTENT
+                      );
+
+                  buttonParams.setMargins(0, 30, 0, 20);
+                  root.addView(button, buttonParams);
+
+                  resultView = new TextView(this);
+                  resultView.setText("Aucune photo analysée.");
+                  resultView.setTextSize(17);
+                  resultView.setTextColor(Color.DKGRAY);
+                  resultView.setGravity(Gravity.CENTER);
+                  root.addView(resultView);
+
+                  setContentView(root);
+              }
+
+              private void chooseImage() {
+                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType("image/*");
+                  startActivityForResult(intent, PICK_IMAGE);
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+
+                  if (
+                      requestCode != PICK_IMAGE ||
+                      resultCode != RESULT_OK ||
+                      data == null ||
+                      data.getData() == null
+                  ) {
+                      return;
+                  }
+
+                  Uri uri = data.getData();
+                  imageView.setImageURI(uri);
+                  analyseExif(uri);
+              }
+
+              private void analyseExif(Uri uri) {
+                  try (InputStream input = getContentResolver().openInputStream(uri)) {
+
+                      if (input == null) {
+                          resultView.setText("Impossible d'ouvrir la photo.");
+                          return;
+                      }
+
+                      ExifInterface exif = new ExifInterface(input);
+                      float[] coordinates = new float[2];
+
+                      if (exif.getLatLong(coordinates)) {
+                          resultView.setText(
+                              String.format(
+                                  Locale.US,
+                                  "GPS trouvé !\nLatitude : %.6f\nLongitude : %.6f",
+                                  coordinates[0],
+                                  coordinates[1]
+                              )
+                          );
+                      } else {
+                          resultView.setText(
+                              "Aucune coordonnée GPS trouvée.\n" +
+                              "Analyse visuelle IA à ajouter dans la prochaine version."
+                          );
+                      }
+
+                  } catch (Exception e) {
+                      resultView.setText("Erreur : " + e.getMessage());
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Geofind APK
+        shell: bash
+        run: |
+          gradle --version
+          gradle :app:assembleDebug --stacktrace
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Geofind-debug.apk
+          ls -lh Geofind-debug.apk
+
+      - name: Upload Geofind APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Geofind-APK
+          path: Geofind-debug.apk
+          if-no-files-found: error
+          retention-days: 30
